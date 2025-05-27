@@ -1,0 +1,26 @@
+---
+# Integration test metadata for sacctmgr_helper
+
+dependencies: []
+
+# Test requirements
+requirements:
+  - slurm-wlm  # SLURM workload manager
+  - slurm-wlm-basic-plugins  # Basic SLURM plugins
+
+# Test tags
+tags:
+  - sacctmgr
+  - slurm
+  - helper
+  - integration
+
+# Skip conditions
+skip_tags:
+  - no_slurm  # Skip if SLURM is not available
+
+# Test environment requirements
+environment:
+  # These tests require a working SLURM environment
+  # They will be skipped if sacctmgr is not available
+  SLURM_REQUIRED: true 

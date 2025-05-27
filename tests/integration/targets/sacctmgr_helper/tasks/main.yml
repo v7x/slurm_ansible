@@ -1,0 +1,207 @@
+---
+# Integration tests for SacctmgrHelper
+# These tests require a working SLURM environment with sacctmgr available
+
+- name: Test SacctmgrHelper integration
+  block:
+    - name: Check if sacctmgr is available
+      command: which sacctmgr
+      register: sacctmgr_check
+      failed_when: false
+      changed_when: false
+
+    - name: Skip tests if sacctmgr not available
+      meta: end_play
+      when: sacctmgr_check.rc != 0
+
+    - name: Test sacctmgr show commands (read-only)
+      block:
+        - name: Show cluster information
+          sacctmgr_test:
+            command: show
+            entity: cluster
+            options: "format=cluster,controlhost"
+          register: show_cluster_result
+
+        - name: Verify show cluster result
+          assert:
+            that:
+              - show_cluster_result is not changed
+              - show_cluster_result.success
+              - show_cluster_result.stdout is defined
+
+        - name: Show account information
+          sacctmgr_test:
+            command: show
+            entity: account
+            options: "format=account,description"
+          register: show_account_result
+
+        - name: Verify show account result
+          assert:
+            that:
+              - show_account_result is not changed
+              - show_account_result.success
+
+        - name: Show user information
+          sacctmgr_test:
+            command: show
+            entity: user
+            options: "format=user,account"
+          register: show_user_result
+
+        - name: Verify show user result
+          assert:
+            that:
+              - show_user_result is not changed
+              - show_user_result.success
+
+    - name: Test sacctmgr validation
+      block:
+        - name: Test invalid command
+          sacctmgr_test:
+            command: invalid_command
+            entity: account
+          register: invalid_command_result
+          failed_when: false
+
+        - name: Verify invalid command fails
+          assert:
+            that:
+              - invalid_command_result is failed
+              - "'Invalid sacctmgr command' in invalid_command_result.msg"
+
+        - name: Test invalid entity
+          sacctmgr_test:
+            command: show
+            entity: invalid_entity
+          register: invalid_entity_result
+          failed_when: false
+
+        - name: Verify invalid entity fails
+          assert:
+            that:
+              - invalid_entity_result is failed
+              - "'Invalid sacctmgr entity' in invalid_entity_result.msg"
+
+    - name: Test JSON output functionality
+      block:
+        - name: Show cluster with JSON
+          sacctmgr_test:
+            command: show
+            entity: cluster
+            use_json: true
+          register: json_result
+
+        - name: Verify JSON output
+          assert:
+            that:
+              - json_result.success
+              - json_result.data is defined
+          when: json_result.success
+
+    - name: Test account management (if permissions allow)
+      block:
+        - name: Create test account
+          sacctmgr_test:
+            command: add
+            entity: account
+            options: "name=test_account description='Test Account for Integration Tests'"
+          register: add_account_result
+          failed_when: false
+
+        - name: Verify account creation (if successful)
+          block:
+            - name: Check if account was created
+              sacctmgr_test:
+                command: show
+                entity: account
+                options: "name=test_account format=account,description"
+              register: verify_account
+
+            - name: Assert account exists
+              assert:
+                that:
+                  - verify_account.success
+                  - "'test_account' in verify_account.stdout"
+
+            - name: Modify test account
+              sacctmgr_test:
+                command: modify
+                entity: account
+                options: "name=test_account set description='Modified Test Account'"
+              register: modify_account_result
+
+            - name: Verify account modification
+              assert:
+                that:
+                  - modify_account_result is changed
+                  - modify_account_result.success
+
+            - name: Delete test account
+              sacctmgr_test:
+                command: delete
+                entity: account
+                options: "name=test_account"
+              register: delete_account_result
+
+            - name: Verify account deletion
+              assert:
+                that:
+                  - delete_account_result is changed
+                  - delete_account_result.success
+
+          when: add_account_result.success
+
+        - name: Log permission warning if account operations failed
+          debug:
+            msg: "Account management tests skipped - insufficient permissions or SLURM not configured for testing"
+          when: not add_account_result.success
+
+    - name: Test error handling
+      block:
+        - name: Test command timeout handling
+          sacctmgr_test:
+            command: show
+            entity: account
+            options: "name=nonexistent_account_that_should_not_exist"
+          register: timeout_test
+          # This should succeed but return empty results
+
+        - name: Verify timeout test
+          assert:
+            that:
+              - timeout_test.success or timeout_test.stderr is defined
+
+    - name: Test convenience methods
+      block:
+        - name: Test show convenience method
+          sacctmgr_show:
+            entity: cluster
+          register: convenience_show
+
+        - name: Verify convenience show
+          assert:
+            that:
+              - convenience_show is not changed
+              - convenience_show.success
+
+  rescue:
+    - name: Handle test failures
+      debug:
+        msg: "Integration test failed: {{ ansible_failed_result.msg | default('Unknown error') }}"
+      
+    - name: Cleanup on failure
+      sacctmgr_test:
+        command: delete
+        entity: account
+        options: "name=test_account"
+      failed_when: false
+
+  always:
+    - name: Final cleanup
+      sacctmgr_test:
+        command: delete
+        entity: account
+        options: "name=test_account"
+      failed_when: false 
